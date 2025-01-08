@@ -133,7 +133,7 @@ def chat_completion_video(req: https_fn.Request) -> https_fn.Response:
         )
     
 @https_fn.on_request()
-# @authenticate_request  # Comment this out for local testing
+@authenticate_request  # Comment this out for local testing
 def youtube_api_proxy(req: https_fn.Request) -> https_fn.Response:
     logger.info(f"Received request: {req.method}")
     
@@ -200,3 +200,4 @@ curl -X POST \
     "prompt": "What is the capital of France?"
   }'
 """
+

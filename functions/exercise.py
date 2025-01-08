@@ -31,6 +31,9 @@ class Exercise(BaseModel):
     description: str
     interval: float
     videoURL: str
+    reps: Optional[int]
+    restTime: Optional[int]
+
 
 class Group(BaseModel):
     name: str
@@ -49,20 +52,30 @@ def generate_exercises(request: TranscriptRequest):
     prompt = f"""
     Analyze this transcript for specific exercise instructions: {request.transcript}
 
-    Only identify and provide information for exercises that are clearly described. If the transcript does not contain clear exercise instructions, respond with "No clear exercise instructions found."
+    Identify and provide information for exercises in the transcript. Never use the word seconds when doing time - assume it is the default to be in seconds. If the transcript does not contain any exercise instructions, respond with "No clear exercise instructions found."
 
     For each clearly described exercise, provide the following information in a structured format:
     1. Name of the exercise
     2. Description of how to perform the exercise
-    3. Interval (duration) in seconds. Ensure this is a number not a range.
+    3. Interval (duration) in seconds. Ensure this is a number not a range. Default to 60 if unsure. If there are reps assume there are 5 per rep. If there are exericses for each limb seperate the exercises by limb
     4. A placeholder URL for a video demonstration if no videoId is provided or the youtube video plus the timestamp of the exercise
+    5. Reps. Default to 12 if not specified
+    6. Rest time if specified. If not follow these rules of the objectives of the workout (if present in the transcript): 
+        Muscle mass: Rest 90 between sets
+        Strength and power: Rest 300 between sets
+        Endurance: Rest less than 120  between sets
+        Hypertrophy (muscle growth): Rest 60 between sets
+        Interval workouts: Rest 90 between sets
 
     Please format your response as follows for each exercise:
     Exercise: [Name]
     Description: [Brief description]
     Interval: [Number of seconds]
     VideoURL: https://example.com/exercise-video or https://www.youtube.com/watch?v=<videoId>&t=<timestamp>s
+    Reps: [Number of reps]
+    RestTime: [Number of seconds]
 
+    At the very first line of your response generate a suitable title for the entire workout ie. "Shoulder Strengthening". Do not add any special text to this title. Then generate the exercises below it.
     Separate each exercise with a blank line. If the user asks for a repeat of the same exercise, that is 3 sets, return the same exercise with the same name, description, interval, and videoURL the number of times specified (3)
 
     If the transcript contains non-exercise related talk or planning without clear exercise instructions, do not generate any exercise information for that part.
@@ -81,7 +94,6 @@ def generate_exercises(request: TranscriptRequest):
     with httpx.Client(timeout=50.0) as client:
         response = client.post(OPENAI_API_URL, json=payload, headers=headers)
 
-
     try:
         content = response.json()["choices"][0]["message"]["content"]
     except Exception as e:
@@ -91,8 +103,9 @@ def generate_exercises(request: TranscriptRequest):
 
 def parse_exercises(text: str) -> Optional[Group]:
     exercises = []
+    title = text.split("\n")[0]
+    text = text.replace(title, "")
     exercise_blocks = text.split("\n\n")
-
     for block in exercise_blocks:
         lines = block.split("\n")
         exercise_data = {}
@@ -107,12 +120,16 @@ def parse_exercises(text: str) -> Optional[Group]:
                 exercise_data["interval"] = float(interval_str)
             elif line.startswith("VideoURL:"):
                 exercise_data["videoURL"] = line.replace("VideoURL:", "").strip()
+            elif line.startswith("Reps:"):
+                exercise_data["reps"] = line.replace("Reps:", "").strip()
+            elif line.startswith("RestTime:"):
+                exercise_data["restTime"] = line.replace("RestTime:", "").strip()
 
         if "name" in exercise_data and "interval" in exercise_data:
             exercises.append(Exercise(**exercise_data))
 
     if exercises:
-        return Group(name="Generated Group", exercises=exercises)
+        return Group(name=title, exercises=exercises)
     return None
 
 
